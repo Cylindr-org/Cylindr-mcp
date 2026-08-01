@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: cylindr
+    runtime: node
+    plan: free
+    # Render runs these from the repo root; rootDir points at this folder
+    # in case zserver/ lives inside a larger monorepo.
+    rootDir: zserver
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      # PORT is provided by Render automatically; index.ts already reads it.

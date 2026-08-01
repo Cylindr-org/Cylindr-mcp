@@ -1,0 +1,70 @@
+{
+  "stations": [
+    {
+      "id": "st_001",
+      "name": "Petron Gasul - Quezon Ave",
+      "region": "Metro Manila",
+      "area": "Quezon City",
+      "lat": 14.6417,
+      "lng": 121.0333,
+      "phone": "+63 2 8123 4567"
+    },
+    {
+      "id": "st_002",
+      "name": "Solane Depot - Makati",
+      "region": "Metro Manila",
+      "area": "Makati",
+      "lat": 14.5547,
+      "lng": 121.0244,
+      "phone": "+63 2 8234 5678"
+    },
+    {
+      "id": "st_003",
+      "name": "Phoenix LPG - Pasig",
+      "region": "Metro Manila",
+      "area": "Pasig",
+      "lat": 14.5764,
+      "lng": 121.0851,
+      "phone": "+63 2 8345 6789"
+    },
+    {
+      "id": "st_004",
+      "name": "Regasco - Cebu City",
+      "region": "Central Visayas",
+      "area": "Cebu City",
+      "lat": 10.3157,
+      "lng": 123.8854,
+      "phone": "+63 32 412 3456"
+    },
+    {
+      "id": "st_005",
+      "name": "Petron Gasul - Mandaue",
+      "region": "Central Visayas",
+      "area": "Mandaue",
+      "lat": 10.3236,
+      "lng": 123.9223,
+      "phone": "+63 32 423 4567"
+    },
+    {
+      "id": "st_006",
+      "name": "Solane - Davao Downtown",
+      "region": "Davao Region",
+      "area": "Davao City",
+      "lat": 7.1907,
+      "lng": 125.4553,
+      "phone": "+63 82 234 5678"
+    }
+  ],
+  "priceReports": [
+    { "id": "pr_001", "stationId": "st_001", "pricePerKg": 62.5, "stock": "in_stock", "reporter": "seed", "timestamp": "2026-07-25T08:00:00.000Z" },
+    { "id": "pr_002", "stationId": "st_001", "pricePerKg": 63.0, "stock": "in_stock", "reporter": "seed", "timestamp": "2026-07-30T08:00:00.000Z" },
+    { "id": "pr_003", "stationId": "st_002", "pricePerKg": 61.0, "stock": "low", "reporter": "seed", "timestamp": "2026-07-28T09:30:00.000Z" },
+    { "id": "pr_004", "stationId": "st_002", "pricePerKg": 60.5, "stock": "in_stock", "reporter": "seed", "timestamp": "2026-07-31T09:30:00.000Z" },
+    { "id": "pr_005", "stationId": "st_003", "pricePerKg": 64.0, "stock": "out_of_stock", "reporter": "seed", "timestamp": "2026-07-31T14:00:00.000Z" },
+    { "id": "pr_006", "stationId": "st_004", "pricePerKg": 58.0, "stock": "in_stock", "reporter": "seed", "timestamp": "2026-07-29T10:00:00.000Z" },
+    { "id": "pr_007", "stationId": "st_004", "pricePerKg": 59.5, "stock": "in_stock", "reporter": "seed", "timestamp": "2026-07-31T10:00:00.000Z" },
+    { "id": "pr_008", "stationId": "st_005", "pricePerKg": 60.0, "stock": "low", "reporter": "seed", "timestamp": "2026-07-30T11:00:00.000Z" },
+    { "id": "pr_009", "stationId": "st_006", "pricePerKg": 65.5, "stock": "in_stock", "reporter": "seed", "timestamp": "2026-07-28T12:00:00.000Z" },
+    { "id": "pr_010", "stationId": "st_006", "pricePerKg": 66.0, "stock": "low", "reporter": "seed", "timestamp": "2026-07-31T12:00:00.000Z" }
+  ]
+}
