@@ -126,7 +126,7 @@ export function createLpgServer(store: DataStore): McpServer {
           content: [
             {
               type: "text",
-              text: `Recorded report ${saved.id} for ${stationId}: ₱${saved.pricePerKg}/kg (${saved.stock}) at ${saved.timestamp}.`,
+              text: `Recorded report ${saved.id} for ${stationId}: ₦${saved.pricePerKg}/kg (${saved.stock}) at ${saved.timestamp}.`,
             },
           ],
         };
