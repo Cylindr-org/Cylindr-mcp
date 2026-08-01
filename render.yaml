@@ -3,10 +3,10 @@ services:
     name: cylindr
     runtime: node
     plan: free
-    # Render runs these from the repo root; rootDir points at this folder
-    # in case zserver/ lives inside a larger monorepo.
-    rootDir: zserver
-    buildCommand: npm install && npm run build
+    # This repo has package.json at its root, so Render builds from the root.
+    # devDependencies (typescript, tsx) are needed for the build, so force a
+    # full install regardless of NODE_ENV.
+    buildCommand: npm install --include=dev && npm run build
     startCommand: npm start
     healthCheckPath: /health
     autoDeploy: true
