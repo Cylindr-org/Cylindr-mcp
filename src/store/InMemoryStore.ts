@@ -1,43 +1,21 @@
-import { randomUUID } from "node:crypto";
 import type { DataStore } from "./DataStore.js";
 import type {
-  NewPriceReport,
   PriceReport,
   Station,
   StationWithLatest,
   TrendPoint,
 } from "./types.js";
-import seed from "../data/seed.json" with { type: "json" };
-
-// Haversine distance in kilometers.
-function distanceKm(
-  lat1: number,
-  lng1: number,
-  lat2: number,
-  lng2: number
-): number {
-  const R = 6371;
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLng = toRad(lng2 - lng1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
 
 const norm = (s: string) => s.trim().toLowerCase();
 
-// In-memory store seeded from seed.json. Data lives only for the process
-// lifetime — restarting resets to the seed. Good enough for a demo.
+// In-memory store for unit tests or offline development fallback.
 export class InMemoryStore implements DataStore {
   private stations: Station[];
   private reports: PriceReport[];
 
-  constructor() {
-    // Clone so we never mutate the imported JSON module object.
-    this.stations = structuredClone(seed.stations) as Station[];
-    this.reports = structuredClone(seed.priceReports) as PriceReport[];
+  constructor(stations: Station[] = [], reports: PriceReport[] = []) {
+    this.stations = structuredClone(stations);
+    this.reports = structuredClone(reports);
   }
 
   async listStations(region?: string): Promise<Station[]> {
@@ -56,24 +34,29 @@ export class InMemoryStore implements DataStore {
     return forStation[0] ?? null;
   }
 
-  async getLatestPrices(region?: string): Promise<StationWithLatest[]> {
-    const stations = await this.listStations(region);
+  private getLatestPricesForStations(stations: Station[]): StationWithLatest[] {
     return stations.map((s) => ({ ...s, latest: this.latestFor(s.id) }));
   }
 
-  async findNearest(
-    lat: number,
-    lng: number,
+  async getLatestPrices(region?: string): Promise<StationWithLatest[]> {
+    const stations = await this.listStations(region);
+    return this.getLatestPricesForStations(stations);
+  }
+
+  async findStations(
+    query: string,
     limit: number
   ): Promise<StationWithLatest[]> {
-    return this.stations
-      .map((s) => ({
-        ...s,
-        latest: this.latestFor(s.id),
-        distanceKm: Number(distanceKm(lat, lng, s.lat, s.lng).toFixed(2)),
-      }))
-      .sort((a, b) => (a.distanceKm ?? 0) - (b.distanceKm ?? 0))
+    const q = norm(query);
+    const matched = this.stations
+      .filter(
+        (s) =>
+          norm(s.name).includes(q) ||
+          norm(s.region).includes(q) ||
+          norm(s.area).includes(q)
+      )
       .slice(0, limit);
+    return this.getLatestPricesForStations(matched);
   }
 
   async getTrends(region: string, days: number): Promise<TrendPoint[]> {
@@ -103,22 +86,5 @@ export class InMemoryStore implements DataStore {
         reportCount: prices.length,
       }))
       .sort((a, b) => a.date.localeCompare(b.date));
-  }
-
-  async addPriceReport(report: NewPriceReport): Promise<PriceReport> {
-    const station = await this.getStation(report.stationId);
-    if (!station) {
-      throw new Error(`Unknown stationId: ${report.stationId}`);
-    }
-    const saved: PriceReport = {
-      id: `pr_${randomUUID().slice(0, 8)}`,
-      stationId: report.stationId,
-      pricePerKg: report.pricePerKg,
-      stock: report.stock,
-      reporter: report.reporter?.trim() || "anonymous",
-      timestamp: new Date().toISOString(),
-    };
-    this.reports.push(saved);
-    return saved;
   }
 }

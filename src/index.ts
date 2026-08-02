@@ -1,13 +1,14 @@
 import express, { type Request, type Response } from "express";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createLpgServer } from "./server.js";
-import { InMemoryStore } from "./store/InMemoryStore.js";
+import { MongoStore } from "./store/MongoStore.js";
+import { connectDB } from "./db.js";
+import { config } from "./config.js";
 
-const PORT = Number(process.env.PORT) || 3000;
+const PORT = config.port;
 
-// Single shared store so all requests see the same (in-memory) data.
-// Swap this line for `new MongoStore(...)` later — nothing else changes.
-const store = new InMemoryStore();
+// Reads live LPG data from MongoDB (same collections the backend writes to).
+const store = new MongoStore();
 
 const app = express();
 app.use(express.json());
@@ -57,6 +58,14 @@ const methodNotAllowed = (_req: Request, res: Response) => {
 app.get("/mcp", methodNotAllowed);
 app.delete("/mcp", methodNotAllowed);
 
-app.listen(PORT, () => {
-  console.log(`Cylindr MCP server listening on http://localhost:${PORT}/mcp`);
-});
+// Connect to MongoDB first, then start accepting MCP requests.
+connectDB()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`Cylindr MCP server listening on http://localhost:${PORT}/mcp`);
+    });
+  })
+  .catch((err) => {
+    console.error("Failed to connect to MongoDB:", err);
+    process.exit(1);
+  });

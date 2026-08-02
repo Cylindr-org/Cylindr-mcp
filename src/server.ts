@@ -2,10 +2,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { DataStore } from "./store/DataStore.js";
 
-const stockEnum = z.enum(["in_stock", "low", "out_of_stock"]);
-
 // Build a configured MCP server backed by the given data store.
-// Called once per HTTP session in index.ts.
+// Read-only: exposes live LPG data to Claude, never writes it.
 export function createLpgServer(store: DataStore): McpServer {
   const server = new McpServer({
     name: "cylindr",
@@ -17,7 +15,7 @@ export function createLpgServer(store: DataStore): McpServer {
     "get_lpg_price",
     "Get the latest LPG price per kg and stock status for stations in a region. " +
       "Omit region to list all stations.",
-    { region: z.string().optional().describe("e.g. 'Metro Manila', 'Cebu'") },
+    { region: z.string().optional().describe("e.g. 'Lagos', 'Abuja'") },
     async ({ region }) => {
       const rows = await store.getLatestPrices(region);
       if (rows.length === 0) {
@@ -44,22 +42,28 @@ export function createLpgServer(store: DataStore): McpServer {
     }
   );
 
-  // --- find_nearest_station ------------------------------------------------
+  // --- find_stations -------------------------------------------------------
   server.tool(
-    "find_nearest_station",
-    "Find the LPG stations nearest to a coordinate, with their latest price and " +
-      "distance in km. Useful for 'cheapest/closest gas near me' questions.",
+    "find_stations",
+    "Search for LPG stations by area, region, or name, with their latest price " +
+      "and stock. Useful for 'where can I buy gas in <place>' questions.",
     {
-      lat: z.number().describe("Latitude of the user's location"),
-      lng: z.number().describe("Longitude of the user's location"),
-      limit: z.number().int().min(1).max(20).default(3),
+      query: z.string().describe("Area, region, or station name, e.g. 'Ikeja'"),
+      limit: z.number().int().min(1).max(20).default(5),
     },
-    async ({ lat, lng, limit }) => {
-      const rows = await store.findNearest(lat, lng, limit);
+    async ({ query, limit }) => {
+      const rows = await store.findStations(query, limit);
+      if (rows.length === 0) {
+        return {
+          content: [
+            { type: "text", text: `No stations match "${query}".` },
+          ],
+        };
+      }
       const payload = rows.map((r) => ({
         station: r.name,
         area: r.area,
-        distanceKm: r.distanceKm,
+        region: r.region,
         pricePerKg: r.latest?.pricePerKg ?? null,
         stock: r.latest?.stock ?? "unknown",
         phone: r.phone ?? null,
@@ -73,7 +77,7 @@ export function createLpgServer(store: DataStore): McpServer {
     "get_market_trends",
     "Get the daily average LPG price trend for a region over a recent period.",
     {
-      region: z.string().describe("e.g. 'Metro Manila'"),
+      region: z.string().describe("e.g. 'Lagos'"),
       days: z.number().int().min(1).max(365).default(30),
     },
     async ({ region, days }) => {
@@ -101,43 +105,6 @@ export function createLpgServer(store: DataStore): McpServer {
         points: trend,
       };
       return { content: [{ type: "text", text: JSON.stringify(summary, null, 2) }] };
-    }
-  );
-
-  // --- report_price --------------------------------------------------------
-  server.tool(
-    "report_price",
-    "Submit a new LPG price and stock report for a station (crowdsourced data).",
-    {
-      stationId: z.string().describe("Station id, e.g. 'st_001'"),
-      pricePerKg: z.number().positive(),
-      stock: stockEnum,
-      reporter: z.string().optional().describe("Name or handle of the reporter"),
-    },
-    async ({ stationId, pricePerKg, stock, reporter }) => {
-      try {
-        const saved = await store.addPriceReport({
-          stationId,
-          pricePerKg,
-          stock,
-          reporter,
-        });
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Recorded report ${saved.id} for ${stationId}: ₦${saved.pricePerKg}/kg (${saved.stock}) at ${saved.timestamp}.`,
-            },
-          ],
-        };
-      } catch (err) {
-        return {
-          content: [
-            { type: "text", text: `Error: ${(err as Error).message}` },
-          ],
-          isError: true,
-        };
-      }
     }
   );
 
