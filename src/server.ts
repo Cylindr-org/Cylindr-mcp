@@ -1,9 +1,38 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import {
+  registerAppTool,
+  registerAppResource,
+  RESOURCE_MIME_TYPE,
+} from "@modelcontextprotocol/ext-apps/server";
 import { z } from "zod";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { DataStore } from "./store/DataStore.js";
 import type { PublicStation, PublicStationWithLatest } from "./store/types.js";
 import { interpretMarket } from "./market/interpret.js";
-import { renderMarketCard } from "./market/card.js";
+import { buildMarketPayload } from "./market/payload.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Bundled MCP App HTML (built by `npm run build:app`). Prefer the source-tree
+// copy so `tsx watch` picks it up without needing dist/; fall back to dist for
+// production `node dist/index.js`.
+function loadMarketAppHtml(): string {
+  const candidates = [
+    path.join(__dirname, "market/market-app.html"), // dist/ or src/ alongside server
+    path.join(__dirname, "market-app.html"),
+    path.join(__dirname, "../src/market/market-app.html"), // production: dist -> src
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return fs.readFileSync(p, "utf8");
+  }
+  throw new Error(
+    "Missing market-app.html. Run `npm run build:app` before starting the server."
+  );
+}
+
+const MARKET_APP_URI = "ui://cylindr/market-intelligence.html";
 
 // Shape a station's public PROFILE (bio) for a tool response — identity +
 // location + whatever contact fields the station has made public. No price:
@@ -198,26 +227,55 @@ export function createLpgServer(store: DataStore): McpServer {
     }
   );
 
-  // --- get_market_intelligence ---------------------------------------------
-  // Returns a plain-English reading of the GLOBAL price signals that lead the
-  // Nigerian LPG market (crude, propane, NGN/USD), as BOTH:
-  //   1. a rich HTML card (ui:// resource) for hosts that render inline UI, and
-  //   2. a text/JSON block so Claude always has the underlying data to explain.
-  server.tool(
-    "get_market_intelligence",
-    "Get the current global LPG market reading — a Calm/Watch/Alert status with " +
-      "plain-English analysis of the world price signals that drive Nigerian " +
-      "cooking-gas prices (Brent/WTI crude, propane, and the naira/USD rate). " +
-      "Returns a visual summary card plus the underlying numbers, so you can both " +
-      "show it and explain what it means for a station operator.",
+  // --- get_market_intelligence (MCP App) -----------------------------------
+  // Claude hosts that support MCP Apps (SEP-1865) fetch the ui:// resource and
+  // render it in a sandboxed iframe. The tool returns JSON text; the View
+  // receives that via ui/notifications/tool-result and paints the card.
+  registerAppResource(
+    server,
+    "Cylindr Market Intelligence",
+    MARKET_APP_URI,
     {
-      days: z
-        .number()
-        .int()
-        .min(2)
-        .max(365)
-        .default(120)
-        .describe("How many days of history to base the trend/reading on."),
+      description: "Paybox-style market intelligence card for Nigerian LPG operators",
+      _meta: {
+        ui: {
+          prefersBorder: true,
+        },
+      },
+    },
+    async () => ({
+      contents: [
+        {
+          uri: MARKET_APP_URI,
+          mimeType: RESOURCE_MIME_TYPE,
+          text: loadMarketAppHtml(),
+        },
+      ],
+    })
+  );
+
+  registerAppTool(
+    server,
+    "get_market_intelligence",
+    {
+      title: "Market Intelligence",
+      description:
+        "Get the current global LPG market reading — a Calm/Watch/Alert status with " +
+        "plain-English analysis of the world price signals that drive Nigerian " +
+        "cooking-gas prices (Brent/WTI crude, propane, and the naira/USD rate). " +
+        "Shows a visual summary card plus the underlying numbers.",
+      inputSchema: {
+        days: z
+          .number()
+          .int()
+          .min(2)
+          .max(365)
+          .default(120)
+          .describe("How many days of history to base the trend/reading on."),
+      },
+      _meta: {
+        ui: { resourceUri: MARKET_APP_URI },
+      },
     },
     async ({ days }) => {
       const { latest, history } = await store.getMarketData(days);
@@ -234,45 +292,15 @@ export function createLpgServer(store: DataStore): McpServer {
         };
       }
 
-      // The structured fallback: everything the card shows, as data Claude can
-      // reason over and narrate. Kept alongside the UI resource, never instead.
-      const data = {
-        status: reading.status,
-        headline: reading.statusHeadline,
-        summary: reading.summary,
-        advice: reading.advice,
-        windowDays: reading.windowDays,
-        latestDate: latest.date,
-        sources: latest.sources,
-        metrics: reading.metrics.map((m) => ({
-          label: m.label,
-          value: m.valueText,
-          changePct: m.changePct,
-          direction: m.direction,
-          note: m.sentence,
-        })),
-      };
-
-      const html = renderMarketCard(reading, latest.date, history);
+      const data = buildMarketPayload(
+        reading,
+        latest.date,
+        latest.sources,
+        history
+      );
 
       return {
-        content: [
-          // 1. Inline UI card (mcp-ui / MCP Apps). Hosts that don't render it
-          //    simply ignore this block and use the text below.
-          {
-            type: "resource",
-            resource: {
-              uri: `ui://cylindr/market-intelligence/${latest.date}`,
-              mimeType: "text/html",
-              text: html,
-            },
-          },
-          // 2. Text/JSON fallback so Claude always has the data to explain.
-          {
-            type: "text",
-            text: JSON.stringify(data, null, 2),
-          },
-        ],
+        content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
       };
     }
   );

@@ -10,8 +10,12 @@ tool logic.
 |------|--------------|
 | `get_lpg_price(region?)` | Latest price/kg + stock per station in a region (omit region for all) |
 | `find_nearest_station(lat, lng, limit?)` | Nearest stations to a coordinate, with distance + latest price |
-| `get_market_trends(region, days?)` | Daily average price trend over the last N days |
-| `report_price(stationId, pricePerKg, stock, reporter?)` | Submit a crowdsourced price/stock report |
+| `get_market_intelligence(days?)` | Calm/Watch/Alert reading of global LPG drivers + **MCP App card** in Claude |
+
+`get_market_intelligence` is registered as an **MCP App** (SEP-1865): Claude fetches
+`ui://cylindr/market-intelligence.html` and renders it in an iframe; the tool
+result JSON fills the card. Rebuild the View with `npm run build:app` after
+editing `src/market/app/main.ts` or `src/market/card.ts`.
 
 `stock` is one of `in_stock` | `low` | `out_of_stock`.
 
