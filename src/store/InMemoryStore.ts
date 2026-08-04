@@ -1,5 +1,6 @@
 import type { DataStore } from "./DataStore.js";
 import type {
+  MarketData,
   PriceReport,
   PublicStation,
   PublicStationWithLatest,
@@ -109,5 +110,11 @@ export class InMemoryStore implements DataStore {
         reportCount: prices.length,
       }))
       .sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  // The offline store carries no global-price feed, so there is no market
+  // intelligence to serve here.
+  async getMarketData(_days: number): Promise<MarketData> {
+    return { latest: null, history: [] };
   }
 }

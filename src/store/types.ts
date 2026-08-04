@@ -68,3 +68,24 @@ export interface TrendPoint {
   avgPricePerKg: number;
   reportCount: number;
 }
+
+// --- Market intelligence (global price signals) ---------------------------
+// One daily snapshot of the global leading indicators (mirrors the backend's
+// GlobalPrice collection). Any field may be null when a feed was unavailable.
+export interface MarketPoint {
+  date: string;
+  brentUsdPerBarrel: number | null;
+  wtiUsdPerBarrel: number | null;
+  propaneUsdPerGallon: number | null;
+  ngnPerUsd: number | null;
+}
+
+export interface MarketSnapshot extends MarketPoint {
+  sources: string[];
+}
+
+// Latest snapshot plus a chronological history window for trend/reading.
+export interface MarketData {
+  latest: MarketSnapshot | null;
+  history: MarketPoint[]; // oldest -> newest
+}

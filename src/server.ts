@@ -2,6 +2,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { DataStore } from "./store/DataStore.js";
 import type { PublicStation, PublicStationWithLatest } from "./store/types.js";
+import { interpretMarket } from "./market/interpret.js";
+import { renderMarketCard } from "./market/card.js";
 
 // Shape a station's public PROFILE (bio) for a tool response — identity +
 // location + whatever contact fields the station has made public. No price:
@@ -193,6 +195,85 @@ export function createLpgServer(store: DataStore): McpServer {
         points: trend,
       };
       return { content: [{ type: "text", text: JSON.stringify(summary, null, 2) }] };
+    }
+  );
+
+  // --- get_market_intelligence ---------------------------------------------
+  // Returns a plain-English reading of the GLOBAL price signals that lead the
+  // Nigerian LPG market (crude, propane, NGN/USD), as BOTH:
+  //   1. a rich HTML card (ui:// resource) for hosts that render inline UI, and
+  //   2. a text/JSON block so Claude always has the underlying data to explain.
+  server.tool(
+    "get_market_intelligence",
+    "Get the current global LPG market reading — a Calm/Watch/Alert status with " +
+      "plain-English analysis of the world price signals that drive Nigerian " +
+      "cooking-gas prices (Brent/WTI crude, propane, and the naira/USD rate). " +
+      "Returns a visual summary card plus the underlying numbers, so you can both " +
+      "show it and explain what it means for a station operator.",
+    {
+      days: z
+        .number()
+        .int()
+        .min(2)
+        .max(365)
+        .default(120)
+        .describe("How many days of history to base the trend/reading on."),
+    },
+    async ({ days }) => {
+      const { latest, history } = await store.getMarketData(days);
+      const reading = interpretMarket(latest, history);
+
+      if (!latest || !reading) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "No market intelligence available yet. The daily global-price fetch may not have run.",
+            },
+          ],
+        };
+      }
+
+      // The structured fallback: everything the card shows, as data Claude can
+      // reason over and narrate. Kept alongside the UI resource, never instead.
+      const data = {
+        status: reading.status,
+        headline: reading.statusHeadline,
+        summary: reading.summary,
+        advice: reading.advice,
+        windowDays: reading.windowDays,
+        latestDate: latest.date,
+        sources: latest.sources,
+        metrics: reading.metrics.map((m) => ({
+          label: m.label,
+          value: m.valueText,
+          changePct: m.changePct,
+          direction: m.direction,
+          note: m.sentence,
+        })),
+      };
+
+      const html = renderMarketCard(reading, latest.date, history);
+
+      return {
+        content: [
+          // 1. Inline UI card (mcp-ui / MCP Apps). Hosts that don't render it
+          //    simply ignore this block and use the text below.
+          {
+            type: "resource",
+            resource: {
+              uri: `ui://cylindr/market-intelligence/${latest.date}`,
+              mimeType: "text/html",
+              text: html,
+            },
+          },
+          // 2. Text/JSON fallback so Claude always has the data to explain.
+          {
+            type: "text",
+            text: JSON.stringify(data, null, 2),
+          },
+        ],
+      };
     }
   );
 

@@ -47,6 +47,24 @@ const priceReportSchema = new Schema(
 // of the private Company document is ever mapped or queryable here.
 const companySchema = new Schema({ email: String });
 
+// MARKET-INTELLIGENCE: the daily global-price snapshots the backend's fetch job
+// writes (Brent/WTI crude, propane, NGN/USD). Non-sensitive global data — read
+// here directly so the MCP can serve a market reading without a cross-service
+// HTTP call. Model name "GlobalPrice" -> collection "globalprices" (matches the
+// backend). Read-only, like every other model in this file.
+const globalPriceSchema = new Schema(
+  {
+    date: String,
+    brentUsdPerBarrel: Number,
+    wtiUsdPerBarrel: Number,
+    propaneUsdPerGallon: Number,
+    ngnPerUsd: Number,
+    sources: [String],
+  },
+  { timestamps: true }
+);
+
 export const StationModel = mongoose.model("Station", stationSchema);
 export const PriceReportModel = mongoose.model("PriceReport", priceReportSchema);
 export const CompanyModel = mongoose.model("Company", companySchema);
+export const GlobalPriceModel = mongoose.model("GlobalPrice", globalPriceSchema);

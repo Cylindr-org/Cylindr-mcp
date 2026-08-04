@@ -1,4 +1,5 @@
 import type {
+  MarketData,
   PublicStation,
   PublicStationWithLatest,
   TrendPoint,
@@ -25,4 +26,8 @@ export interface DataStore {
 
   // Daily average price trend for a region over the last N days.
   getTrends(region: string, days: number): Promise<TrendPoint[]>;
+
+  // Global market intelligence: the latest snapshot of world price signals
+  // (crude, propane, NGN/USD) plus a history window for the trend/reading.
+  getMarketData(days: number): Promise<MarketData>;
 }

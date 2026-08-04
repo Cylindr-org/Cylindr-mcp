@@ -1,12 +1,20 @@
 import type { DataStore } from "./DataStore.js";
 import type {
+  MarketData,
+  MarketPoint,
+  MarketSnapshot,
   PublicStation,
   PublicStationWithLatest,
   Station,
   StockStatus,
   TrendPoint,
 } from "./types.js";
-import { CompanyModel, PriceReportModel, StationModel } from "./models.js";
+import {
+  CompanyModel,
+  GlobalPriceModel,
+  PriceReportModel,
+  StationModel,
+} from "./models.js";
 import { toPublicStation } from "./project.js";
 
 // Case-insensitive exact match for a region name.
@@ -191,4 +199,41 @@ export class MongoStore implements DataStore {
       reportCount: r.count,
     }));
   }
+
+  async getMarketData(days: number): Promise<MarketData> {
+    // History window: newest `days` rows, then flipped to chronological order
+    // (oldest -> newest) so trend maths and charts read left to right.
+    const docs = await GlobalPriceModel.find({})
+      .sort({ date: -1 })
+      .limit(days)
+      .lean<GlobalPriceLean[]>();
+
+    const history: MarketPoint[] = docs.map(toMarketPoint).reverse();
+    const latestDoc = docs[0] ?? null;
+    const latest: MarketSnapshot | null = latestDoc
+      ? { ...toMarketPoint(latestDoc), sources: latestDoc.sources ?? [] }
+      : null;
+
+    return { latest, history };
+  }
+}
+
+type GlobalPriceLean = {
+  date?: string;
+  brentUsdPerBarrel?: number;
+  wtiUsdPerBarrel?: number;
+  propaneUsdPerGallon?: number;
+  ngnPerUsd?: number;
+  sources?: string[];
+};
+
+// Map a raw global-price doc to a MarketPoint (missing feeds -> null).
+function toMarketPoint(d: GlobalPriceLean): MarketPoint {
+  return {
+    date: d.date ?? "",
+    brentUsdPerBarrel: d.brentUsdPerBarrel ?? null,
+    wtiUsdPerBarrel: d.wtiUsdPerBarrel ?? null,
+    propaneUsdPerGallon: d.propaneUsdPerGallon ?? null,
+    ngnPerUsd: d.ngnPerUsd ?? null,
+  };
 }
