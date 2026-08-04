@@ -1,14 +1,18 @@
 import type { DataStore } from "./DataStore.js";
 import type {
   PriceReport,
+  PublicStation,
+  PublicStationWithLatest,
   Station,
-  StationWithLatest,
   TrendPoint,
 } from "./types.js";
+import { toPublicStation } from "./project.js";
 
 const norm = (s: string) => s.trim().toLowerCase();
 
-// In-memory store for unit tests or offline development fallback.
+// In-memory store for unit tests or offline development fallback. It has no
+// companies collection, so opted-in emails are never surfaced here (the public
+// projection simply omits them).
 export class InMemoryStore implements DataStore {
   private stations: Station[];
   private reports: PriceReport[];
@@ -18,13 +22,20 @@ export class InMemoryStore implements DataStore {
     this.reports = structuredClone(reports);
   }
 
-  async listStations(region?: string): Promise<Station[]> {
-    if (!region) return [...this.stations];
-    return this.stations.filter((s) => norm(s.region) === norm(region));
+  private toPublic(stations: Station[]): PublicStation[] {
+    return stations.filter((s) => s.name).map((s) => toPublicStation(s));
   }
 
-  async getStation(id: string): Promise<Station | null> {
-    return this.stations.find((s) => s.id === id) ?? null;
+  async listStations(region?: string): Promise<PublicStation[]> {
+    const matched = region
+      ? this.stations.filter((s) => norm(s.region) === norm(region))
+      : [...this.stations];
+    return this.toPublic(matched);
+  }
+
+  async getStation(id: string): Promise<PublicStation | null> {
+    const s = this.stations.find((st) => st.id === id);
+    return s ? (this.toPublic([s])[0] ?? null) : null;
   }
 
   private latestFor(stationId: string): PriceReport | null {
@@ -34,19 +45,18 @@ export class InMemoryStore implements DataStore {
     return forStation[0] ?? null;
   }
 
-  private getLatestPricesForStations(stations: Station[]): StationWithLatest[] {
+  private withLatest(stations: PublicStation[]): PublicStationWithLatest[] {
     return stations.map((s) => ({ ...s, latest: this.latestFor(s.id) }));
   }
 
-  async getLatestPrices(region?: string): Promise<StationWithLatest[]> {
-    const stations = await this.listStations(region);
-    return this.getLatestPricesForStations(stations);
+  async getLatestPrices(region?: string): Promise<PublicStationWithLatest[]> {
+    return this.withLatest(await this.listStations(region));
   }
 
   async findStations(
     query: string,
     limit: number
-  ): Promise<StationWithLatest[]> {
+  ): Promise<PublicStationWithLatest[]> {
     const q = norm(query);
     const matched = this.stations
       .filter(
@@ -56,12 +66,25 @@ export class InMemoryStore implements DataStore {
           norm(s.area).includes(q)
       )
       .slice(0, limit);
-    return this.getLatestPricesForStations(matched);
+    return this.withLatest(this.toPublic(matched));
+  }
+
+  async getStationDetail(
+    query: string
+  ): Promise<PublicStationWithLatest | null> {
+    const q = norm(query);
+    const s =
+      this.stations.find((st) => st.id === query) ??
+      this.stations.find((st) => norm(st.name) === q);
+    if (!s) return null;
+    return this.withLatest(this.toPublic([s]))[0] ?? null;
   }
 
   async getTrends(region: string, days: number): Promise<TrendPoint[]> {
     const stationIds = new Set(
-      (await this.listStations(region)).map((s) => s.id)
+      this.stations
+        .filter((s) => norm(s.region) === norm(region))
+        .map((s) => s.id)
     );
     const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
 

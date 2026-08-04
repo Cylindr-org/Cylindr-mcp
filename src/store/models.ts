@@ -10,6 +10,22 @@ const stationSchema = new Schema(
     region: String,
     area: String,
     phone: String,
+    websiteUrl: String,
+    address: String,
+    socialUrl: String,
+    cacNumber: String,
+    // Link back to the owning private account (used ONLY to fetch email when
+    // visibility.email is true — see CompanyModel below).
+    companyId: { type: Schema.Types.ObjectId, ref: "Company" },
+    // Per-field public/private toggles (mirrors the backend). Absent/false = private.
+    visibility: {
+      email: Boolean,
+      phone: Boolean,
+      websiteUrl: Boolean,
+      address: Boolean,
+      socialUrl: Boolean,
+      cacNumber: Boolean,
+    },
   },
   { timestamps: true }
 );
@@ -24,5 +40,13 @@ const priceReportSchema = new Schema(
   { timestamps: true }
 );
 
+// DELIBERATE, WHITELISTED EXCEPTION to "the MCP never reads the companies
+// collection": a minimal read-only model exposing ONLY `email`. It is used
+// solely to resolve a station's contact email when that station has opted in
+// (visibility.email === true), always via `.select("email")`. No other field
+// of the private Company document is ever mapped or queryable here.
+const companySchema = new Schema({ email: String });
+
 export const StationModel = mongoose.model("Station", stationSchema);
 export const PriceReportModel = mongoose.model("PriceReport", priceReportSchema);
+export const CompanyModel = mongoose.model("Company", companySchema);

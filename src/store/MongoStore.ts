@@ -1,11 +1,13 @@
 import type { DataStore } from "./DataStore.js";
 import type {
+  PublicStation,
+  PublicStationWithLatest,
   Station,
-  StationWithLatest,
   StockStatus,
   TrendPoint,
 } from "./types.js";
-import { PriceReportModel, StationModel } from "./models.js";
+import { CompanyModel, PriceReportModel, StationModel } from "./models.js";
+import { toPublicStation } from "./project.js";
 
 // Case-insensitive exact match for a region name.
 const exact = (s: string) => new RegExp(`^${escapeRegex(s)}$`, "i");
@@ -18,35 +20,81 @@ function escapeRegex(s: string): string {
 
 type StationLean = {
   _id: unknown;
-  name: string;
-  region: string;
-  area: string;
+  name?: string;
+  region?: string;
+  area?: string;
   phone?: string;
+  websiteUrl?: string;
+  address?: string;
+  socialUrl?: string;
+  cacNumber?: string;
+  companyId?: unknown;
+  visibility?: Record<string, boolean>;
 };
 
+// Map a raw Mongo doc to the full internal Station (all fields, unprojected).
 function toStation(doc: StationLean): Station {
   return {
     id: String(doc._id),
-    name: doc.name,
-    region: doc.region,
-    area: doc.area,
+    name: doc.name ?? "",
+    region: doc.region ?? "",
+    area: doc.area ?? "",
     phone: doc.phone,
+    websiteUrl: doc.websiteUrl,
+    address: doc.address,
+    socialUrl: doc.socialUrl,
+    cacNumber: doc.cacNumber,
+    companyId: doc.companyId ? String(doc.companyId) : undefined,
+    visibility: doc.visibility,
   };
 }
 
 // Reads LPG data live from MongoDB (same collections the backend writes to).
 export class MongoStore implements DataStore {
-  async listStations(region?: string): Promise<Station[]> {
+  // Resolve login emails for the subset of stations that opted email in.
+  // This is the ONLY place the MCP reads the private companies collection,
+  // and only ever the `email` field, only for visibility.email stations.
+  private async resolveEmails(
+    stations: Station[]
+  ): Promise<Map<string, string>> {
+    const ids = stations
+      .filter((s) => s.visibility?.email && s.companyId)
+      .map((s) => s.companyId as string);
+    const byCompany = new Map<string, string>();
+    if (ids.length === 0) return byCompany;
+    const companies = await CompanyModel.find({ _id: { $in: ids } })
+      .select("email")
+      .lean<{ _id: unknown; email?: string }[]>();
+    for (const c of companies) {
+      if (c.email) byCompany.set(String(c._id), c.email);
+    }
+    return byCompany;
+  }
+
+  // Project a batch of internal stations to public shape (drops private fields
+  // and rows with no public name), resolving opted-in emails first.
+  private async toPublicBatch(stations: Station[]): Promise<PublicStation[]> {
+    const emails = await this.resolveEmails(stations);
+    return stations
+      .filter((s) => s.name)
+      .map((s) =>
+        toPublicStation(s, s.companyId ? emails.get(s.companyId) : undefined)
+      );
+  }
+
+  async listStations(region?: string): Promise<PublicStation[]> {
     const filter = region ? { region: exact(region) } : {};
     const docs = await StationModel.find(filter)
       .sort({ name: 1 })
       .lean<StationLean[]>();
-    return docs.map(toStation);
+    return this.toPublicBatch(docs.map(toStation));
   }
 
-  async getStation(id: string): Promise<Station | null> {
+  async getStation(id: string): Promise<PublicStation | null> {
     const doc = await StationModel.findById(id).lean<StationLean>();
-    return doc ? toStation(doc) : null;
+    if (!doc) return null;
+    const [pub] = await this.toPublicBatch([toStation(doc)]);
+    return pub ?? null;
   }
 
   // Most recent price report for one station id.
@@ -65,20 +113,22 @@ export class MongoStore implements DataStore {
     };
   }
 
-  private async withLatest(stations: Station[]): Promise<StationWithLatest[]> {
+  private async withLatest(
+    stations: PublicStation[]
+  ): Promise<PublicStationWithLatest[]> {
     return Promise.all(
       stations.map(async (s) => ({ ...s, latest: await this.latestFor(s.id) }))
     );
   }
 
-  async getLatestPrices(region?: string): Promise<StationWithLatest[]> {
+  async getLatestPrices(region?: string): Promise<PublicStationWithLatest[]> {
     return this.withLatest(await this.listStations(region));
   }
 
   async findStations(
     query: string,
     limit: number
-  ): Promise<StationWithLatest[]> {
+  ): Promise<PublicStationWithLatest[]> {
     const rx = contains(query);
     const docs = await StationModel.find({
       $or: [{ region: rx }, { area: rx }, { name: rx }],
@@ -86,7 +136,25 @@ export class MongoStore implements DataStore {
       .sort({ name: 1 })
       .limit(limit)
       .lean<StationLean[]>();
-    return this.withLatest(docs.map(toStation));
+    return this.withLatest(await this.toPublicBatch(docs.map(toStation)));
+  }
+
+  async getStationDetail(
+    query: string
+  ): Promise<PublicStationWithLatest | null> {
+    // Try id first, then fall back to a case-insensitive name match.
+    let doc: StationLean | null = null;
+    if (/^[a-f0-9]{24}$/i.test(query)) {
+      doc = await StationModel.findById(query).lean<StationLean>();
+    }
+    if (!doc) {
+      doc = await StationModel.findOne({ name: exact(query) }).lean<StationLean>();
+    }
+    if (!doc) return null;
+    const [pub] = await this.toPublicBatch([toStation(doc)]);
+    if (!pub) return null;
+    const [withLatest] = await this.withLatest([pub]);
+    return withLatest;
   }
 
   async getTrends(region: string, days: number): Promise<TrendPoint[]> {
