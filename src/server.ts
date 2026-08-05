@@ -368,13 +368,15 @@ export function createLpgServer(store: DataStore): McpServer {
       },
     },
     async ({ station }) => {
-      // Resolve the station name for display (so the widget can show what it's
-      // rating) without failing the whole tool if it doesn't resolve — the
-      // widget still works and submit_review will re-validate on submit.
+      // Resolve the station name for display. If it doesn't resolve, fail the
+      // tool immediately so the widget never paints for a non-existent station.
       let resolved: string | null = null;
       if (station?.trim()) {
         const row = await store.getStationDetail(station.trim());
-        resolved = row?.name ?? station.trim();
+        if (!row) {
+          throw new Error(`No station named "${station.trim()}".`);
+        }
+        resolved = row.name;
       }
       const data = {
         station: resolved,

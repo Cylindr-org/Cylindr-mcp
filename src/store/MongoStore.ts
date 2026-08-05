@@ -237,13 +237,21 @@ export class MongoStore implements DataStore {
     const q = input.stationQuery?.trim();
     if (q) {
       let doc: { _id: unknown; name?: string } | null = null;
+      // Try id first.
       if (/^[a-f0-9]{24}$/i.test(q)) {
         doc = await StationModel.findById(q)
           .select("name")
           .lean<{ _id: unknown; name?: string }>();
       }
+      // Then exact case-insensitive match.
       if (!doc) {
         doc = await StationModel.findOne({ name: exact(q) })
+          .select("name")
+          .lean<{ _id: unknown; name?: string }>();
+      }
+      // Finally fuzzy contains fallback (same as find_stations).
+      if (!doc) {
+        doc = await StationModel.findOne({ name: contains(q) })
           .select("name")
           .lean<{ _id: unknown; name?: string }>();
       }

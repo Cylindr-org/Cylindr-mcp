@@ -142,9 +142,11 @@ export class InMemoryStore implements DataStore {
     let stationName: string | null = null;
     const q = input.stationQuery?.trim();
     if (q) {
+      // Try id first, then normalized exact, then fuzzy contains.
       const s =
         this.stations.find((st) => st.id === q) ??
-        this.stations.find((st) => norm(st.name) === norm(q));
+        this.stations.find((st) => norm(st.name) === norm(q)) ??
+        this.stations.find((st) => norm(st.name).includes(norm(q)));
       if (!s) throw new Error(`No station named "${q}".`);
       stationName = s.name;
     }
