@@ -5,10 +5,11 @@ import type {
   TrendPoint,
 } from "./types.js";
 
-// The contract every data store must satisfy. Read-only: the MCP server
-// exposes LPG data to Claude but never writes it (prices come from a feed).
-// Every station returned here is already a PUBLIC projection — private fields
-// have been stripped per each station's visibility flags before this point.
+// The contract every data store must satisfy. Read-only EXCEPT `submitReview`,
+// the single write path (customer reviews submitted from the Claude chat
+// widget). Every station returned here is already a PUBLIC projection — private
+// fields have been stripped per each station's visibility flags before this
+// point.
 export interface DataStore {
   listStations(region?: string): Promise<PublicStation[]>;
   getStation(id: string): Promise<PublicStation | null>;
@@ -30,4 +31,14 @@ export interface DataStore {
   // Global market intelligence: the latest snapshot of world price signals
   // (crude, propane, NGN/USD) plus a history window for the trend/reading.
   getMarketData(days: number): Promise<MarketData>;
+
+  // WRITE: record a customer review submitted from the Claude chat widget.
+  // `stationQuery` (name or id) is resolved to a station; omit it for
+  // developer/platform feedback (stored with station: null).
+  submitReview(input: {
+    stationQuery?: string;
+    rating: number;
+    comment?: string;
+    reviewerName?: string;
+  }): Promise<{ station: string | null; rating: number }>;
 }

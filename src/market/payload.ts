@@ -48,3 +48,40 @@ export function buildMarketPayload(
       .filter((v): v is number => typeof v === "number"),
   };
 }
+
+// A clean, human-readable rendering of the same payload. This is the tool's
+// TEXT content: what Claude narrates from, and what hosts that can't render the
+// visual card (e.g. Claude mobile, which doesn't paint MCP-App iframes yet)
+// show instead of a raw JSON dump. The visual card reads `structuredContent`.
+export function renderMarketText(data: MarketCardPayload): string {
+  const arrow = (d: string) => (d === "up" ? "↑" : d === "down" ? "↓" : "→");
+  const lines: string[] = [];
+
+  lines.push(data.headline);
+  lines.push(
+    `(${data.windowDays}-day window, latest data ${data.latestDate})`
+  );
+  lines.push("");
+
+  for (const m of data.metrics) {
+    const change =
+      m.changePct == null
+        ? ""
+        : ` (${m.changePct > 0 ? "+" : ""}${m.changePct.toFixed(1)}% ${arrow(
+            m.direction
+          )})`;
+    lines.push(`• ${m.label}: ${m.value}${change}`);
+  }
+
+  lines.push("");
+  lines.push(data.summary);
+  lines.push("");
+  lines.push(`What to consider: ${data.advice}`);
+
+  if (data.sources.length) {
+    lines.push("");
+    lines.push(`Sources: ${data.sources.join(", ")}.`);
+  }
+
+  return lines.join("\n");
+}

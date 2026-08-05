@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import type { DataStore } from "./store/DataStore.js";
 import type { PublicStation, PublicStationWithLatest } from "./store/types.js";
 import { interpretMarket } from "./market/interpret.js";
-import { buildMarketPayload } from "./market/payload.js";
+import { buildMarketPayload, renderMarketText } from "./market/payload.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -32,7 +32,23 @@ function loadMarketAppHtml(): string {
   );
 }
 
+// Same fallback strategy for the review widget bundle.
+function loadReviewAppHtml(): string {
+  const candidates = [
+    path.join(__dirname, "market/review-app.html"),
+    path.join(__dirname, "review-app.html"),
+    path.join(__dirname, "../src/market/review-app.html"),
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return fs.readFileSync(p, "utf8");
+  }
+  throw new Error(
+    "Missing review-app.html. Run `npm run build:app` before starting the server."
+  );
+}
+
 const MARKET_APP_URI = "ui://cylindr/market-intelligence.html";
+const REVIEW_APP_URI = "ui://cylindr/review.html";
 
 // Shape a station's public PROFILE (bio) for a tool response — identity +
 // location + whatever contact fields the station has made public. No price:
@@ -300,8 +316,133 @@ export function createLpgServer(store: DataStore): McpServer {
       );
 
       return {
-        content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
+        content: [{ type: "text", text: renderMarketText(data) }],
+        structuredContent: data as unknown as Record<string, unknown>,
       };
+    }
+  );
+
+  // --- reviews (MCP App: inline stars + message in the chat) ---------------
+  // leave_review renders an interactive widget (5 clickable stars + an optional
+  // message + optional name). The widget submits back via submit_review, which
+  // is the only write in this server. Omit `station` to leave developer /
+  // platform feedback instead of rating a specific station.
+  registerAppResource(
+    server,
+    "Cylindr Review",
+    REVIEW_APP_URI,
+    {
+      description: "Inline star-rating + message widget for LPG stations",
+      _meta: { ui: { prefersBorder: true } },
+    },
+    async () => ({
+      contents: [
+        {
+          uri: REVIEW_APP_URI,
+          mimeType: RESOURCE_MIME_TYPE,
+          text: loadReviewAppHtml(),
+        },
+      ],
+    })
+  );
+
+  registerAppTool(
+    server,
+    "leave_review",
+    {
+      title: "Leave a Review",
+      description:
+        "Show an interactive rating widget so the user can rate an LPG station " +
+        "(1–5 clickable stars) with an optional message and name. Call this when " +
+        "a user wants to review or rate a station, or to give feedback about the " +
+        "Cylindr platform itself. Pass `station` (name) to rate a specific " +
+        "station; omit it for platform/developer feedback.",
+      inputSchema: {
+        station: z
+          .string()
+          .optional()
+          .describe("Station/company name to rate, e.g. 'Vagan Oil'. Omit for platform feedback."),
+      },
+      _meta: {
+        ui: { resourceUri: REVIEW_APP_URI },
+      },
+    },
+    async ({ station }) => {
+      // Resolve the station name for display (so the widget can show what it's
+      // rating) without failing the whole tool if it doesn't resolve — the
+      // widget still works and submit_review will re-validate on submit.
+      let resolved: string | null = null;
+      if (station?.trim()) {
+        const row = await store.getStationDetail(station.trim());
+        resolved = row?.name ?? station.trim();
+      }
+      const data = {
+        station: resolved,
+        kind: resolved ? "station" : "developer",
+      };
+      return {
+        content: [
+          {
+            type: "text",
+            text: resolved
+              ? `Rate ${resolved}: pick 1–5 stars and add an optional message.`
+              : "Share feedback about Cylindr: pick 1–5 stars and add an optional message.",
+          },
+        ],
+        structuredContent: data as unknown as Record<string, unknown>,
+      };
+    }
+  );
+
+  // Write tool — callable ONLY by the widget (hidden from the model). Persists
+  // the review; transport/validation failures surface as isError.
+  server.registerTool(
+    "submit_review",
+    {
+      title: "Submit Review",
+      description:
+        "Persist a star rating submitted from the review widget. Internal — " +
+        "invoked by the UI, not directly by the model.",
+      inputSchema: {
+        station: z.string().optional(),
+        rating: z.number().int().min(1).max(5),
+        comment: z.string().optional(),
+        reviewerName: z.string().optional(),
+      },
+      _meta: {
+        ui: { visibility: ["app"] },
+      },
+    },
+    async ({ station, rating, comment, reviewerName }) => {
+      try {
+        const res = await store.submitReview({
+          stationQuery: station,
+          rating,
+          comment,
+          reviewerName,
+        });
+        return {
+          content: [
+            {
+              type: "text",
+              text: res.station
+                ? `Recorded a ${res.rating}★ review for ${res.station}.`
+                : `Recorded a ${res.rating}★ platform review.`,
+            },
+          ],
+          structuredContent: { ok: true, rating: res.rating },
+        };
+      } catch (err) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: err instanceof Error ? err.message : "Failed to submit review.",
+            },
+          ],
+        };
+      }
     }
   );
 

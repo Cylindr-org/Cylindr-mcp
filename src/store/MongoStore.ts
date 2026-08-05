@@ -14,6 +14,7 @@ import {
   GlobalPriceModel,
   PriceReportModel,
   StationModel,
+  StationReviewModel,
 } from "./models.js";
 import { toPublicStation } from "./project.js";
 
@@ -215,6 +216,52 @@ export class MongoStore implements DataStore {
       : null;
 
     return { latest, history };
+  }
+
+  // The ONLY write in the MCP server: persist a customer review from the chat
+  // widget. Resolves an optional station name/id; unresolved names throw so the
+  // caller can surface a clear error. Touches only the reviews collection.
+  async submitReview(input: {
+    stationQuery?: string;
+    rating: number;
+    comment?: string;
+    reviewerName?: string;
+  }): Promise<{ station: string | null; rating: number }> {
+    const rating = Math.round(input.rating);
+    if (!Number.isFinite(rating) || rating < 1 || rating > 5) {
+      throw new Error("rating must be a whole number from 1 to 5.");
+    }
+
+    let stationId: string | null = null;
+    let stationName: string | null = null;
+    const q = input.stationQuery?.trim();
+    if (q) {
+      let doc: { _id: unknown; name?: string } | null = null;
+      if (/^[a-f0-9]{24}$/i.test(q)) {
+        doc = await StationModel.findById(q)
+          .select("name")
+          .lean<{ _id: unknown; name?: string }>();
+      }
+      if (!doc) {
+        doc = await StationModel.findOne({ name: exact(q) })
+          .select("name")
+          .lean<{ _id: unknown; name?: string }>();
+      }
+      if (!doc) {
+        throw new Error(`No station named "${q}".`);
+      }
+      stationId = String(doc._id);
+      stationName = doc.name ?? q;
+    }
+
+    await StationReviewModel.create({
+      station: stationId,
+      rating,
+      comment: input.comment?.trim() || undefined,
+      reviewerName: input.reviewerName?.trim() || undefined,
+    });
+
+    return { station: stationName, rating };
   }
 }
 

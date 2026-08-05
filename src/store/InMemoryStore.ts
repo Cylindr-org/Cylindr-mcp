@@ -117,4 +117,46 @@ export class InMemoryStore implements DataStore {
   async getMarketData(_days: number): Promise<MarketData> {
     return { latest: null, history: [] };
   }
+
+  // In-memory review sink — kept only for the current process. Mirrors the
+  // Mongo write path's validation and name resolution so tests behave the same.
+  private reviews: Array<{
+    station: string | null;
+    rating: number;
+    comment?: string;
+    reviewerName?: string;
+    createdAt: string;
+  }> = [];
+
+  async submitReview(input: {
+    stationQuery?: string;
+    rating: number;
+    comment?: string;
+    reviewerName?: string;
+  }): Promise<{ station: string | null; rating: number }> {
+    const rating = Math.round(input.rating);
+    if (!Number.isFinite(rating) || rating < 1 || rating > 5) {
+      throw new Error("rating must be a whole number from 1 to 5.");
+    }
+
+    let stationName: string | null = null;
+    const q = input.stationQuery?.trim();
+    if (q) {
+      const s =
+        this.stations.find((st) => st.id === q) ??
+        this.stations.find((st) => norm(st.name) === norm(q));
+      if (!s) throw new Error(`No station named "${q}".`);
+      stationName = s.name;
+    }
+
+    this.reviews.push({
+      station: stationName,
+      rating,
+      comment: input.comment?.trim() || undefined,
+      reviewerName: input.reviewerName?.trim() || undefined,
+      createdAt: new Date().toISOString(),
+    });
+
+    return { station: stationName, rating };
+  }
 }

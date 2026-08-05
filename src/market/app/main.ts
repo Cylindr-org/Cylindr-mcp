@@ -9,8 +9,14 @@ function show(html: string) {
 }
 
 function parsePayload(result: {
+  structuredContent?: unknown;
   content?: Array<{ type: string; text?: string }>;
 }): MarketCardPayload | null {
+  // Preferred: the typed structuredContent channel.
+  const sc = result.structuredContent as MarketCardPayload | undefined;
+  if (sc && typeof sc === "object" && "status" in sc) return sc;
+
+  // Fallback: older responses put the JSON payload in the text content.
   const text = result.content?.find((c) => c.type === "text")?.text;
   if (!text) return null;
   try {

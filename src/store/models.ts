@@ -64,7 +64,25 @@ const globalPriceSchema = new Schema(
   { timestamps: true }
 );
 
+// REVIEWS: customer ratings submitted from the Claude chat widget. This is the
+// ONE collection the MCP writes to (via submitReview) — every other model here
+// is read-only. `station: null` = developer/platform feedback. Mirrors the
+// backend's StationReview model. Model name "StationReview" -> "stationreviews".
+const stationReviewSchema = new Schema(
+  {
+    station: { type: Schema.Types.ObjectId, ref: "Station", default: null },
+    rating: { type: Number, required: true, min: 1, max: 5 },
+    comment: String,
+    reviewerName: String,
+  },
+  { timestamps: true }
+);
+
 export const StationModel = mongoose.model("Station", stationSchema);
 export const PriceReportModel = mongoose.model("PriceReport", priceReportSchema);
 export const CompanyModel = mongoose.model("Company", companySchema);
 export const GlobalPriceModel = mongoose.model("GlobalPrice", globalPriceSchema);
+export const StationReviewModel = mongoose.model(
+  "StationReview",
+  stationReviewSchema
+);
