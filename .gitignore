@@ -4,3 +4,8 @@ dist/
 .env
 .env.local
 .DS_Store
+
+# Generated MCP App widget bundles (produced by `npm run build:app`; also
+# rebuilt on every deploy). Source lives in src/market/app/*.ts.
+src/market/market-app.html
+src/market/review-app.html

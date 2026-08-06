@@ -25,6 +25,12 @@ export interface DataStore {
   // (case-insensitive). Powers Claude's "individual station" lookups.
   getStationDetail(query: string): Promise<PublicStationWithLatest | null>;
 
+  // Resolve a station name/id to a concrete { id, name }. Used by BOTH the
+  // review widget prompt and the write path so they always agree: tries id →
+  // exact name → single fuzzy match. Throws a clear, user-safe error if nothing
+  // matches or the query is ambiguous (matches more than one station).
+  resolveStation(query: string): Promise<{ id: string; name: string }>;
+
   // Daily average price trend for a region over the last N days.
   getTrends(region: string, days: number): Promise<TrendPoint[]>;
 

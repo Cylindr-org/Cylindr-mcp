@@ -142,23 +142,52 @@ export class InMemoryStore implements DataStore {
     let stationName: string | null = null;
     const q = input.stationQuery?.trim();
     if (q) {
-      // Try id first, then normalized exact, then fuzzy contains.
-      const s =
-        this.stations.find((st) => st.id === q) ??
-        this.stations.find((st) => norm(st.name) === norm(q)) ??
-        this.stations.find((st) => norm(st.name).includes(norm(q)));
-      if (!s) throw new Error(`No station named "${q}".`);
-      stationName = s.name;
+      stationName = (await this.resolveStation(q)).name;
     }
+
+    const comment = input.comment?.trim().slice(0, 1000) || undefined;
+    const reviewerName = input.reviewerName?.trim().slice(0, 80) || undefined;
 
     this.reviews.push({
       station: stationName,
       rating,
-      comment: input.comment?.trim() || undefined,
-      reviewerName: input.reviewerName?.trim() || undefined,
+      comment,
+      reviewerName,
       createdAt: new Date().toISOString(),
     });
 
     return { station: stationName, rating };
+  }
+
+  // Shared station resolver — see DataStore. id → exact name → single fuzzy
+  // match; throws on not-found or ambiguous.
+  async resolveStation(query: string): Promise<{ id: string; name: string }> {
+    const q = query.trim();
+    if (!q) throw new Error("A station name is required.");
+    const nq = norm(q);
+
+    const byId = this.stations.find((st) => st.id === q);
+    if (byId) return { id: byId.id, name: byId.name };
+
+    const byExact = this.stations.find((st) => norm(st.name) === nq);
+    if (byExact) return { id: byExact.id, name: byExact.name };
+
+    if (q.length >= 3) {
+      const matches = this.stations.filter((st) => norm(st.name).includes(nq));
+      if (matches.length === 1) {
+        return { id: matches[0].id, name: matches[0].name };
+      }
+      if (matches.length > 1) {
+        const names = matches
+          .slice(0, 3)
+          .map((m) => `"${m.name}"`)
+          .join(", ");
+        throw new Error(
+          `"${q}" matches multiple stations (${names}…). Please be more specific.`
+        );
+      }
+    }
+
+    throw new Error(`No station named "${q}".`);
   }
 }

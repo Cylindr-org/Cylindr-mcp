@@ -236,40 +236,75 @@ export class MongoStore implements DataStore {
     let stationName: string | null = null;
     const q = input.stationQuery?.trim();
     if (q) {
-      let doc: { _id: unknown; name?: string } | null = null;
-      // Try id first.
-      if (/^[a-f0-9]{24}$/i.test(q)) {
-        doc = await StationModel.findById(q)
-          .select("name")
-          .lean<{ _id: unknown; name?: string }>();
-      }
-      // Then exact case-insensitive match.
-      if (!doc) {
-        doc = await StationModel.findOne({ name: exact(q) })
-          .select("name")
-          .lean<{ _id: unknown; name?: string }>();
-      }
-      // Finally fuzzy contains fallback (same as find_stations).
-      if (!doc) {
-        doc = await StationModel.findOne({ name: contains(q) })
-          .select("name")
-          .lean<{ _id: unknown; name?: string }>();
-      }
-      if (!doc) {
-        throw new Error(`No station named "${q}".`);
-      }
-      stationId = String(doc._id);
-      stationName = doc.name ?? q;
+      const ref = await this.resolveStation(q);
+      stationId = ref.id;
+      stationName = ref.name;
     }
 
-    await StationReviewModel.create({
-      station: stationId,
-      rating,
-      comment: input.comment?.trim() || undefined,
-      reviewerName: input.reviewerName?.trim() || undefined,
-    });
+    // Defense-in-depth length caps (the tool schema also enforces these, but a
+    // store is the last line before the DB). Empty-after-trim → undefined.
+    const comment = input.comment?.trim().slice(0, 1000) || undefined;
+    const reviewerName = input.reviewerName?.trim().slice(0, 80) || undefined;
+
+    try {
+      await StationReviewModel.create({
+        station: stationId,
+        rating,
+        comment,
+        reviewerName,
+      });
+    } catch {
+      // Never surface raw driver errors (they can leak collection/connection
+      // details); give the caller a safe, generic message.
+      throw new Error("Could not save your review. Please try again.");
+    }
 
     return { station: stationName, rating };
+  }
+
+  // Shared station resolver — see DataStore. id → exact name → single fuzzy
+  // match. Throws on not-found or ambiguous so callers never write to (or
+  // display) the wrong station.
+  async resolveStation(query: string): Promise<{ id: string; name: string }> {
+    const q = query.trim();
+    if (!q) throw new Error("A station name is required.");
+
+    // 1. Exact id.
+    if (/^[a-f0-9]{24}$/i.test(q)) {
+      const byId = await StationModel.findById(q)
+        .select("name")
+        .lean<{ _id: unknown; name?: string }>();
+      if (byId) return { id: String(byId._id), name: byId.name ?? q };
+    }
+
+    // 2. Exact (case-insensitive) name.
+    const byExact = await StationModel.findOne({ name: exact(q) })
+      .select("name")
+      .lean<{ _id: unknown; name?: string }>();
+    if (byExact) return { id: String(byExact._id), name: byExact.name ?? q };
+
+    // 3. Fuzzy contains — only for queries long enough to be meaningful, and
+    //    only when it resolves to EXACTLY one station (no mis-attribution).
+    if (q.length >= 3) {
+      const matches = await StationModel.find({ name: contains(q) })
+        .select("name")
+        .limit(6)
+        .lean<{ _id: unknown; name?: string }[]>();
+      if (matches.length === 1) {
+        return { id: String(matches[0]._id), name: matches[0].name ?? q };
+      }
+      if (matches.length > 1) {
+        const names = matches
+          .slice(0, 3)
+          .map((m) => `"${m.name}"`)
+          .join(", ");
+        throw new Error(
+          `"${q}" matches multiple stations (${names}…). Please be more specific.`
+        );
+      }
+    }
+
+    throw new Error(`No station named "${q}".`);
   }
 }
 

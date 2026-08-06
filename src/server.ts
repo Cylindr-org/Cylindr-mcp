@@ -360,6 +360,8 @@ export function createLpgServer(store: DataStore): McpServer {
       inputSchema: {
         station: z
           .string()
+          .trim()
+          .max(120)
           .optional()
           .describe("Station/company name to rate, e.g. 'Vagan Oil'. Omit for platform feedback."),
       },
@@ -368,15 +370,12 @@ export function createLpgServer(store: DataStore): McpServer {
       },
     },
     async ({ station }) => {
-      // Resolve the station name for display. If it doesn't resolve, fail the
-      // tool immediately so the widget never paints for a non-existent station.
+      // Resolve via the SAME path submit_review uses, so if the widget paints,
+      // the eventual submit is guaranteed to resolve the same station. A
+      // not-found / ambiguous query throws here → the widget never shows.
       let resolved: string | null = null;
       if (station?.trim()) {
-        const row = await store.getStationDetail(station.trim());
-        if (!row) {
-          throw new Error(`No station named "${station.trim()}".`);
-        }
-        resolved = row.name;
+        resolved = (await store.resolveStation(station.trim())).name;
       }
       const data = {
         station: resolved,
@@ -406,10 +405,10 @@ export function createLpgServer(store: DataStore): McpServer {
         "Persist a star rating submitted from the review widget. Internal — " +
         "invoked by the UI, not directly by the model.",
       inputSchema: {
-        station: z.string().optional(),
+        station: z.string().trim().max(120).optional(),
         rating: z.number().int().min(1).max(5),
-        comment: z.string().optional(),
-        reviewerName: z.string().optional(),
+        comment: z.string().trim().max(1000).optional(),
+        reviewerName: z.string().trim().max(80).optional(),
       },
       _meta: {
         ui: { visibility: ["app"] },
